@@ -1,0 +1,155 @@
+substitutions:
+  devicename: waterscale
+
+esphome:
+  name: $devicename
+  platform: ESP8266
+  board: d1_mini
+
+# Enable logging
+logger:
+
+ota:
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Watermeter Fallback Hotspot"
+    password: "12345678"
+
+captive_portal:
+
+mqtt:
+  broker: !secret mqtt_ip
+  username: !secret mqtt_user
+  password: !secret mqtt_password
+  client_id: $devicename
+
+light:
+  - platform: neopixelbus
+    type: GRB
+    variant: WS2812X
+    pin: GPIO3
+    num_leds: 24
+    name: "ringlight"
+    state_topic: "$devicename/ringlight/state"
+    command_topic: "$devicename/ringlight/command"
+    effects:
+      # Customize parameters
+      - random:
+          name: "Slow Random"
+          transition_length: 30s
+          update_interval: 30s
+      - random:
+          name: "Fast Random"
+          transition_length: 4s
+          update_interval: 5s
+      - addressable_rainbow:
+          name: Rainbow
+          speed: 10
+          width: 50
+      - addressable_twinkle:
+          name: Twinkle Effect
+          twinkle_probability: 5%
+          progress_interval: 4ms
+      - addressable_random_twinkle:
+          name: Random Twinkle
+          twinkle_probability: 5%
+          progress_interval: 32ms
+      - addressable_fireworks:
+          name: Fireworks
+          update_interval: 32ms
+          spark_probability: 10%
+          use_random_color: false
+          fade_out_rate: 120
+      - addressable_flicker:
+          name: Flicker
+      - addressable_color_wipe:
+          name: Color Wipe
+          colors:
+            - red: 100%
+              green: 100%
+              blue: 100%
+              num_leds: 1
+            - red: 0%
+              green: 0%
+              blue: 0%
+              num_leds: 2
+          add_led_interval: 100ms
+          reverse: false
+      - addressable_scan:
+          name: Scan
+          move_interval: 2000ms
+          scan_width: 1
+      - pulse:
+          name: "Fast Pulse"
+          transition_length: 0.5s
+          update_interval: 0.5s
+          min_brightness: 0%
+          max_brightness: 100%
+
+text_sensor:
+  - platform: template
+    name: Uptime Human Readable
+    id: uptime_human
+    icon: mdi:clock-start
+    state_topic: $devicename/uptime_text
+
+sensor:
+  - platform: hx711
+    name: "scale"
+    dout_pin: D0
+    clk_pin: D1
+    gain: 64
+    update_interval: 10s
+    state_topic: "$devicename/scale/state"
+    filters:
+      - calibrate_linear:
+          - 58700 -> 0
+          - 691100 -> 678
+    unit_of_measurement: g
+
+# Report Wifi signal strength
+  - platform: wifi_signal
+    name: "WiFi Signal Sensor"
+    update_interval: 60s
+    state_topic: $devicename/rssi
+
+# System uptime
+  - platform: uptime
+    name: Uptime Sensor
+    id: uptime_sensor
+    state_topic: $devicename/uptime
+    update_interval: 60s
+    on_raw_value:
+      then:
+        - text_sensor.template.publish:
+            id: uptime_human
+            state: !lambda |-
+              int seconds = round(id(uptime_sensor).raw_state);
+              int days = seconds / (24 * 3600);
+              seconds = seconds % (24 * 3600);
+              int hours = seconds / 3600;
+              seconds = seconds % 3600;
+              int minutes = seconds /  60;
+              seconds = seconds % 60;
+              return (
+                (days ? String(days) + "d " : "") +
+                (hours ? String(hours) + "h " : "") +
+                (minutes ? String(minutes) + "m " : "") +
+                (String(seconds) + "s")
+              ).c_str();
+    filters:
+      - lambda: return x / 60;
+    unit_of_measurement: "m"
+
+# Web Server for discovery purposes
+web_server:
+  port: 80
+
+
+
