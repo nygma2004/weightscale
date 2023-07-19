@@ -1,0 +1,1063 @@
+[
+    {
+        "id": "f2f455c6737e68db",
+        "type": "tab",
+        "label": "Weight Scale",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "989fc29f676f4ead",
+        "type": "junction",
+        "z": "f2f455c6737e68db",
+        "x": 260,
+        "y": 420,
+        "wires": [
+            [
+                "62e86b141bc64d8b",
+                "1716df1893a6927e"
+            ]
+        ]
+    },
+    {
+        "id": "9598f28274dc0a1a",
+        "type": "mqtt in",
+        "z": "f2f455c6737e68db",
+        "name": "Weight",
+        "topic": "waterscale/scale/state",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "cea5258a.b34038",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 130,
+        "y": 220,
+        "wires": [
+            [
+                "98bead708ac99e7e",
+                "8e2a85f8d4961224"
+            ]
+        ]
+    },
+    {
+        "id": "30802cc52b0518a1",
+        "type": "comment",
+        "z": "f2f455c6737e68db",
+        "name": "Incoming data from the scale",
+        "info": "",
+        "x": 160,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "98bead708ac99e7e",
+        "type": "function",
+        "z": "f2f455c6737e68db",
+        "name": "Scale function",
+        "func": "let output = null;\nlet settings = flow.get(\"scalesettings\",\"file\");\nif (settings === undefined) {\n    node.status({ fill: \"red\", shape: \"dot\", text: \"Missing settings\" });\n    return;\n}\nlet resetdata = { \"lastvalue\": 0, \"nochange\": 0, \"lastfilledvalue\": 0, \"totalbottles\": 0, \"total\": 0 };\n\nlet scale = flow.get(\"scaledata\");\nif (scale === undefined) {\n    scale = resetdata;\n}\n\nif (msg.topic===\"reset\") {\n    scale = resetdata;\n    flow.set(\"scaledata\", scale);\n    return;\n}\n\nlet weight = msg.payload;\n\n// Reduce noise from the data\n// Prevent just placing the weight on the scale and possible vibration introduce bad data\nif (Math.abs(weight - scale.lastvalue)>settings.measurementvariance) {\n    // Too much difference from last value\n    node.status({ fill: \"red\", shape: \"ring\", text: weight });\n    scale.lastvalue = weight;\n    flow.set(\"scaledata\", scale);\n    return;\n}\n\nif (scale.lastfilledvalue === 0) {\n    // if this is e.g. the first reading of the day, use that as a filled value\n    scale.lastfilledvalue = weight;\n    scale.lastvalidvalue = weight;\n    scale.lastdrinktime = new Date().getTime();\n}\n\n// Determine state\nif (weight < settings.scaleempty) {\n    // Scale is empty, bottle is removed\n    if (scale.state !== \"empty\") {\n        scale.state = \"empty\";\n        output = {\"topic\": scale.state, \"payload\": scale};\n    }\n} else {\n\n    if (weight < scale.lastvalidvalue - 1) {\n        // Weight on the scale is reducing\n        scale.state = \"reducing\";\n        scale.lastvalidvalue = weight;\n        scale.lastdrinktime = new Date().getTime();\n        scale.lastdrinkalarm = undefined;\n        scale.nochange = 0;\n        scale.total = scale.totalbottles + scale.lastfilledvalue - weight;\n        output = { \"topic\": scale.state, \"payload\": scale };\n        if (scale.total > settings.dailygoal) {\n            // Goal reached\n            if (!scale.goalreached) {\n                scale.goalreached = true;\n                output = { \"topic\": \"goalreached\", \"payload\": scale };\n            }\n        }\n    } else {\n        if (weight > scale.lastvalidvalue + 1) {\n            // Bottle got refilled\n            scale.state = \"filled\";\n            scale.lastvalidvalue = weight;\n            scale.lastfilledvalue = weight;\n            scale.lastdrinktime = new Date().getTime();\n            scale.lastdrinkalarm = undefined;\n            scale.totalbottles = scale.total;\n            scale.nochange = 0;\n            output = { \"topic\": scale.state, \"payload\": scale };            \n        } else {\n            // Weight on the scale stays the same\n            scale.state = \"nochange\";\n            scale.nochange = Math.floor((new Date().getTime() - scale.lastdrinktime)/1000);\n            if (scale.total < settings.dailygoal) {\n                // Daily goal not reached yet, alarms should be active\n                if (scale.nochange / 60 > settings.drinkalarm) {\n                    // no drink for a while\n                    if (scale.lastdrinkalarm === undefined) {\n                        // no alarm was sent yet\n                        output = { \"topic\": \"firstalarm\", \"payload\": scale }; \n                        scale.lastdrinkalarm = new Date().getTime();    \n                    } else {\n                        if (Math.floor((new Date().getTime() - scale.lastdrinkalarm) / 1000/ 60) > settings.alarmreminder) {\n                            // send out an alarm reminder\n                            output = { \"topic\": \"alarmreminder\", \"payload\": scale };\n                            scale.lastdrinkalarm = new Date().getTime(); \n                        }\n                    }\n                }\n            } \n        }\n    }\n    \n}\n\nscale.lastvalue = weight;\nflow.set(\"scaledata\", scale);\n\nnode.status({ fill: \"blue\", shape: \"ring\", text: weight + \" | \" + scale.total +  \" | \" + settings.statuses[scale.state]});\nreturn output;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 370,
+        "y": 220,
+        "wires": [
+            [
+                "beb7ab7d4946b912",
+                "9ed4267c15948a13"
+            ]
+        ]
+    },
+    {
+        "id": "7267f2e150dd6a68",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Logic settings",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"measurementvariance\":3,\"scaleempty\":30,\"drinkalarm\":30,\"alarmreminder\":5,\"dailygoal\":2000,\"statuses\":{\"empty\":\"Bottle removed\",\"filled\":\"Bottle refilled\",\"reducing\":\"Drinking\",\"nochange\":\"No change\"}}",
+        "payloadType": "json",
+        "x": 150,
+        "y": 40,
+        "wires": [
+            [
+                "272c188d6363645c"
+            ]
+        ]
+    },
+    {
+        "id": "272c188d6363645c",
+        "type": "change",
+        "z": "f2f455c6737e68db",
+        "name": "Store in context",
+        "rules": [
+            {
+                "t": "set",
+                "p": "#:(file)::scalesettings",
+                "pt": "flow",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 350,
+        "y": 40,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "beb7ab7d4946b912",
+        "type": "debug",
+        "z": "f2f455c6737e68db",
+        "name": "debug 60",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 680,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "9ed4267c15948a13",
+        "type": "switch",
+        "z": "f2f455c6737e68db",
+        "name": "Message type",
+        "property": "topic",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "empty",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "filled",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "reducing",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "firstalarm",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "alarmreminder",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "goalreached",
+                "vt": "str"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 6,
+        "x": 600,
+        "y": 280,
+        "wires": [
+            [
+                "d8ee3dd601ac94d9",
+                "fa72e32ae344df95"
+            ],
+            [
+                "53042930cf8a4985",
+                "a5bc3d29fe4a59a1"
+            ],
+            [
+                "f1a094a4da308214",
+                "19dbca678fc2280d"
+            ],
+            [
+                "6cd896d53569cd6c",
+                "b11a749c33ee4a69"
+            ],
+            [
+                "9ea7ba9f7dfecaba",
+                "afe3c419f46753e9"
+            ],
+            [
+                "f1a094a4da308214",
+                "ee6a41425fb53e1a"
+            ]
+        ]
+    },
+    {
+        "id": "a9f9949719245cb5",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Rainbow",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"effect\":\"Rainbow\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+        "payloadType": "json",
+        "x": 120,
+        "y": 420,
+        "wires": [
+            [
+                "989fc29f676f4ead"
+            ]
+        ]
+    },
+    {
+        "id": "62e86b141bc64d8b",
+        "type": "mqtt out",
+        "z": "f2f455c6737e68db",
+        "name": "Ringlight",
+        "topic": "waterscale/ringlight/command",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "cea5258a.b34038",
+        "x": 640,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "d2ee2d1dda198ab4",
+        "type": "change",
+        "z": "f2f455c6737e68db",
+        "name": "Off",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"effect\":\"None\",\"color_mode\":\"rgb\",\"state\":\"OFF\",\"brightness\":255,\"color\":{\"r\":0,\"g\":0,\"b\":0}}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 490,
+        "y": 480,
+        "wires": [
+            [
+                "62e86b141bc64d8b"
+            ]
+        ]
+    },
+    {
+        "id": "1716df1893a6927e",
+        "type": "delay",
+        "z": "f2f455c6737e68db",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 360,
+        "y": 480,
+        "wires": [
+            [
+                "d2ee2d1dda198ab4"
+            ]
+        ]
+    },
+    {
+        "id": "2dde7977cf0885ed",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Slow Random",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"effect\":\"Slow Random\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+        "payloadType": "json",
+        "x": 130,
+        "y": 460,
+        "wires": [
+            [
+                "989fc29f676f4ead"
+            ]
+        ]
+    },
+    {
+        "id": "d6c139c2dcaaad26",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Fast Random",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"effect\":\"Fast Random\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+        "payloadType": "json",
+        "x": 130,
+        "y": 500,
+        "wires": [
+            [
+                "989fc29f676f4ead"
+            ]
+        ]
+    },
+    {
+        "id": "49ae5e5b9fee9d1f",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Twinkle Effect",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"effect\":\"Twinkle Effect\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+        "payloadType": "json",
+        "x": 130,
+        "y": 540,
+        "wires": [
+            [
+                "989fc29f676f4ead"
+            ]
+        ]
+    },
+    {
+        "id": "0ad437fcd8d8f8bb",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Random Twinkle ",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"effect\":\"Random Twinkle\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+        "payloadType": "json",
+        "x": 140,
+        "y": 580,
+        "wires": [
+            [
+                "989fc29f676f4ead"
+            ]
+        ]
+    },
+    {
+        "id": "f4eab4954c08b837",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Color Wipe ",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"effect\":\"Color Wipe\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+        "payloadType": "json",
+        "x": 120,
+        "y": 620,
+        "wires": [
+            [
+                "989fc29f676f4ead"
+            ]
+        ]
+    },
+    {
+        "id": "45797c7c0d3ad4c0",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Off",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 370,
+        "y": 540,
+        "wires": [
+            [
+                "d2ee2d1dda198ab4"
+            ]
+        ]
+    },
+    {
+        "id": "9171a4fee088379a",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Scan",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"effect\":\"Scan\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+        "payloadType": "json",
+        "x": 110,
+        "y": 660,
+        "wires": [
+            [
+                "989fc29f676f4ead"
+            ]
+        ]
+    },
+    {
+        "id": "32bdde49791490e9",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Fast Pulse",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"effect\":\"Fast Pulse\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+        "payloadType": "json",
+        "x": 120,
+        "y": 700,
+        "wires": [
+            [
+                "989fc29f676f4ead"
+            ]
+        ]
+    },
+    {
+        "id": "d8ee3dd601ac94d9",
+        "type": "change",
+        "z": "f2f455c6737e68db",
+        "name": "Scan",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"effect\":\"Scan\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":100,\"color\":{\"r\":128,\"g\":0,\"b\":128}}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 870,
+        "y": 340,
+        "wires": [
+            [
+                "541fcf273d4be410",
+                "3ae5ae43db5f6c51"
+            ]
+        ]
+    },
+    {
+        "id": "541fcf273d4be410",
+        "type": "mqtt out",
+        "z": "f2f455c6737e68db",
+        "name": "Ringlight",
+        "topic": "waterscale/ringlight/command",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "cea5258a.b34038",
+        "x": 1440,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "58626c0bfeae7241",
+        "type": "delay",
+        "z": "f2f455c6737e68db",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 1100,
+        "y": 480,
+        "wires": [
+            [
+                "6975201d71645c8e"
+            ]
+        ]
+    },
+    {
+        "id": "6975201d71645c8e",
+        "type": "change",
+        "z": "f2f455c6737e68db",
+        "name": "Off",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"effect\":\"None\",\"color_mode\":\"rgb\",\"state\":\"OFF\",\"brightness\":255,\"color\":{\"r\":0,\"g\":255,\"b\":0}}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1290,
+        "y": 480,
+        "wires": [
+            [
+                "541fcf273d4be410"
+            ]
+        ]
+    },
+    {
+        "id": "3ae5ae43db5f6c51",
+        "type": "delay",
+        "z": "f2f455c6737e68db",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "10",
+        "timeoutUnits": "minutes",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 1110,
+        "y": 560,
+        "wires": [
+            [
+                "6975201d71645c8e"
+            ]
+        ]
+    },
+    {
+        "id": "53042930cf8a4985",
+        "type": "change",
+        "z": "f2f455c6737e68db",
+        "name": "Yellow",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"effect\":\"none\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":200,\"color\":{\"r\":0,\"g\":0,\"b\":255}}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 870,
+        "y": 380,
+        "wires": [
+            [
+                "58626c0bfeae7241",
+                "541fcf273d4be410"
+            ]
+        ]
+    },
+    {
+        "id": "f1a094a4da308214",
+        "type": "change",
+        "z": "f2f455c6737e68db",
+        "name": "Green",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"effect\":\"none\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":200,\"color\":{\"r\":0,\"g\":255,\"b\":0}}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 870,
+        "y": 420,
+        "wires": [
+            [
+                "541fcf273d4be410",
+                "58626c0bfeae7241"
+            ]
+        ]
+    },
+    {
+        "id": "6cd896d53569cd6c",
+        "type": "change",
+        "z": "f2f455c6737e68db",
+        "name": "Rainbow",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"effect\":\"Rainbow\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 880,
+        "y": 460,
+        "wires": [
+            [
+                "541fcf273d4be410",
+                "34b6ba5fd22f44f8"
+            ]
+        ]
+    },
+    {
+        "id": "34b6ba5fd22f44f8",
+        "type": "delay",
+        "z": "f2f455c6737e68db",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "1",
+        "timeoutUnits": "minutes",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 1100,
+        "y": 520,
+        "wires": [
+            [
+                "6975201d71645c8e"
+            ]
+        ]
+    },
+    {
+        "id": "9ea7ba9f7dfecaba",
+        "type": "change",
+        "z": "f2f455c6737e68db",
+        "name": "Random twinkle",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"effect\":\"Random Twinkle\",\"color_mode\":\"rgb\",\"state\":\"ON\",\"brightness\":255,\"color\":{\"r\":255,\"g\":255,\"b\":255}}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 900,
+        "y": 500,
+        "wires": [
+            [
+                "34b6ba5fd22f44f8",
+                "541fcf273d4be410"
+            ]
+        ]
+    },
+    {
+        "id": "77c94248694c162c",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Reset",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "00 03 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "reset",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 300,
+        "wires": [
+            [
+                "98bead708ac99e7e"
+            ]
+        ]
+    },
+    {
+        "id": "8e2a85f8d4961224",
+        "type": "function",
+        "z": "f2f455c6737e68db",
+        "name": "Time since last update",
+        "func": "let temp = context.get(\"store\");\nlet current = new Date();\nmsg.payload = \"No data\";\n\nif (msg.topic===\"update\") {\n    if (temp!==undefined) {\n        current = current - temp;\n        current = Math.floor(current/1000);\n        msg.sinceupdate = current;\n        var minute = Math.floor(current/60);\n        var hour = Math.floor(minute/60);\n        var day = Math.floor(hour/24);\n        if (current>24*60*60) {\n            msg.payload = \"Last update \" + day + \" days, \" + hour%24 + \" hours, \" + minute%60 + \" minutes, \" + current%60 + \" seconds ago\";\n        } else if (current>60*60) {\n            msg.payload = \"Last update \" + hour%24 + \" hours, \" + minute%60 + \" minutes, \" + current%60 + \" seconds ago\";\n        } else if (current>60) {\n            msg.payload = \"Last update \" + minute%60 + \" minutes, \" + current%60 + \" seconds ago\";\n        } else {\n            msg.payload = \"Last update \" + current%60 + \" seconds ago\";\n        }\n        \n        node.status({fill:\"blue\",shape:\"ring\",text:msg.payload});\n        return msg;\n    } else {\n        node.status({fill:\"grey\",shape:\"dot\",text:\"no data\"});\n    }\n} else {\n    context.set(\"store\",current);\n    return msg;\n}\n\n\n\n\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "x": 380,
+        "y": 160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "87c50d98b1267f7f",
+        "type": "inject",
+        "z": "f2f455c6737e68db",
+        "name": "Update",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "update",
+        "payload": "",
+        "payloadType": "date",
+        "x": 120,
+        "y": 160,
+        "wires": [
+            [
+                "8e2a85f8d4961224"
+            ]
+        ]
+    },
+    {
+        "id": "fa72e32ae344df95",
+        "type": "function",
+        "z": "f2f455c6737e68db",
+        "name": "Bottle removed",
+        "func": "msg.payload = { \"service\": 24, \"type\": \"message\", \"content\": \"🥤 Bottle removed - \"+msg.payload.total};\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1100,
+        "y": 40,
+        "wires": [
+            [
+                "b593df7a4ad4b12f"
+            ]
+        ]
+    },
+    {
+        "id": "b593df7a4ad4b12f",
+        "type": "link out",
+        "z": "f2f455c6737e68db",
+        "name": "",
+        "mode": "link",
+        "links": [
+            "86deb2f58b76aa52"
+        ],
+        "x": 1425,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "a5bc3d29fe4a59a1",
+        "type": "function",
+        "z": "f2f455c6737e68db",
+        "name": "Bottle filled",
+        "func": "msg.payload = { \"service\": 24, \"type\": \"message\", \"content\": \"🥤 Bottle filled - \"+msg.payload.total};\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1090,
+        "y": 80,
+        "wires": [
+            [
+                "b593df7a4ad4b12f"
+            ]
+        ]
+    },
+    {
+        "id": "19dbca678fc2280d",
+        "type": "function",
+        "z": "f2f455c6737e68db",
+        "name": "Drinking",
+        "func": "msg.payload = { \"service\": 24, \"type\": \"message\", \"content\": \"🥤 Good boy! - \"+msg.payload.total};\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1080,
+        "y": 120,
+        "wires": [
+            [
+                "b593df7a4ad4b12f"
+            ]
+        ]
+    },
+    {
+        "id": "b11a749c33ee4a69",
+        "type": "function",
+        "z": "f2f455c6737e68db",
+        "name": "First alarm",
+        "func": "msg.payload = { \"service\": 24, \"type\": \"message\", \"content\": \"🥤 Drink more water! - \"+msg.payload.total};\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1090,
+        "y": 160,
+        "wires": [
+            [
+                "b593df7a4ad4b12f"
+            ]
+        ]
+    },
+    {
+        "id": "afe3c419f46753e9",
+        "type": "function",
+        "z": "f2f455c6737e68db",
+        "name": "Alarm notification",
+        "func": "msg.payload = { \"service\": 24, \"type\": \"message\", \"content\": \"🥤 Please, drink more water! - \"+msg.payload.total};\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1110,
+        "y": 200,
+        "wires": [
+            [
+                "b593df7a4ad4b12f"
+            ]
+        ]
+    },
+    {
+        "id": "ee6a41425fb53e1a",
+        "type": "function",
+        "z": "f2f455c6737e68db",
+        "name": "Goal reached",
+        "func": "msg.payload = { \"service\": 24, \"type\": \"message\", \"content\": \"🥤 Daily goal reached, yuhuuu! - \"+msg.payload.total};\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1100,
+        "y": 240,
+        "wires": [
+            [
+                "b593df7a4ad4b12f"
+            ]
+        ]
+    },
+    {
+        "id": "58f1e977c2d2f5de",
+        "type": "comment",
+        "z": "f2f455c6737e68db",
+        "name": "Settings",
+        "info": "This inject node contains the settings for the entire flow.\n\nEdit the settings in the inject node and inject manually or set it to trigger when Node-Red starts\n\nThe meaning of individual values:\n- \"measurementvariance\": 3: ignore measurement values until the readings stabilize within 3 gramms.\n- \"scaleempty\": 30: any weight less than this is considered as an empty scale. Use this if the scale is still showing some weight when empty.\n- \"drinkalarm\": 30: first alarm time in minutes if the weight on the scale is not changing.\n- \"alarmreminder\": 5: reminder alarms time in minutes after the first alarm.\n- \"dailygoal\": 2000: weight (volume) goal for the day, after this no more reminders are sent.\n- \"statuses\": Text for each status to be displayed on the screen.",
+        "x": 530,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "ac3b6bc4c14e03a0",
+        "type": "comment",
+        "z": "f2f455c6737e68db",
+        "name": "Ringlight test",
+        "info": "",
+        "x": 100,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "34a6f763f84450d1",
+        "type": "comment",
+        "z": "f2f455c6737e68db",
+        "name": "Telegram message sending",
+        "info": "This part of the flow is using my Telegram subscription model.\nIf you want send Telegram messages directly, change each of the \"service\": 24 part in the payload to \"chatid\": xxxxxxx where xxx is your Telegram chatid. And replace the link-out node with the Telegram Senser node.",
+        "x": 1510,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "cea5258a.b34038",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "192.168.1.80",
+        "port": "1883",
+        "clientid": "node-red",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "sessionExpiry": ""
+    }
+]
