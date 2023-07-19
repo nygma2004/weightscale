@@ -18,7 +18,7 @@ The logic does the following:
 
 There is a detailed video on this project where all the details are explained:
 
-ADD LINK
+[![Project video](https://img.youtube.com/vi/Mz1dJGthIJk/0.jpg)](https://www.youtube.com/watch?v=Mz1dJGthIJk)
 
 ## Hardware
 
@@ -33,6 +33,30 @@ The wiring diagram is here:
 
 In order for the load cell to work, one side of the load cell needs to be supported from the "underside". The weight must be applied on the other end from the "top". Make sure the actual load cell elements (under the white glue) are free and not weight is applied to them.
 
+Load cell is shipped with the red/black/white/green wires attached. `B-` and `B+` connections are not used.
+```
+Load cell  HX711 board
+red        E+
+black      E-
+white      A-
+green      A+
+```
+
+```
+HX711 board  Wemos D1 Mini
+GND          G (GND)
+DT           D0
+SCK          D1
+VCC          3V3
+```
+
+```
+Wemos D1 Mini  Ring Light
+GND            GND
+RX             DI
+5V             VCC
+```
+
 ## ESPHome
 
 You can find my ESPHome yaml file in the repo: [weight.yaml](weight.yaml) and also the [secrets.yaml](secrets.yaml) in which the IDs and password are stored separately.
@@ -45,4 +69,7 @@ The top of the scale is cut from 4mm acrylic. I also have the 2D drawings for th
 
 ## Node-Red Flow
 
-
+All the logic is implemented in the Node-Red flow. It receives continous updates from the load cell and sends status changes which controls the ring light and issues the Telegram messages.
+There is an inject node on the top of the flow and all the configuration details are stored there. Check the comment node next to it for explanation for each settings.
+How to implement and configure the flow is explained in the video, and also there is a more in-depth explanation of the actual logic.
+There are no special nodes required by this flow.
