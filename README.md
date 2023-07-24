@@ -18,7 +18,7 @@ The logic does the following:
 
 There is a detailed video on this project where all the details are explained:
 
-[![Project video](https://img.youtube.com/vi/Mz1dJGthIJk/0.jpg)](https://www.youtube.com/watch?v=Mz1dJGthIJk)
+[![Project video](https://img.youtube.com/vi/myc7lB9ZL7s/0.jpg)](https://www.youtube.com/watch?v=myc7lB9ZL7s)
 
 ## Hardware
 
